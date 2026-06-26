@@ -5,6 +5,7 @@ import html
 from util_funcs import get_int, get_str, clear_screen, clear_screen_delayed, write_json, load_json
 from abc import ABC, abstractmethod
 from typing import List, Optional
+from pathlib import Path
 
 class OpenTrivia():
     CATEGORIES = {
@@ -102,6 +103,19 @@ class QuizSession():
         ) -> None:
         
         self.player = player
+        self.questions = questions
+
+    def play(self,ui) -> None:
+        for number, question in enumerate(self.questions, start=1):
+            ui.display_question(number,question,len(self.questions))
+            answer = ui.get_answer()
+
+            if self.answer_question(question,answer):
+                 ui.display_correct_answer()
+            else:
+                 ui.display_wrong_answer(question.correct_answer)
+            time.sleep(2)
+            clear_screen()
 
     def answer_question(
         self,
@@ -123,21 +137,21 @@ class ConsoleUi:
 
     # === QuizApp Class Display Section ===
     @staticmethod
-    def display_Main_Menu() -> None:
+    def display_main_menu() -> None:
         print("="*26)
         print("\tQuiz APP")
         print("="*26) 
         print("[1] Start Quiz\n[2] Leaderboard\n[3] Exit")
 
     @staticmethod
-    def display_player_creation() -> None:
+    def display_player_creation_screen() -> None:
         print("="*26)
         print("\tCreate Player")
         print("="*26)
 
     #Get Quiz Section
     @staticmethod
-    def display_get_quiz_settings() -> None:
+    def display_quiz_settings_menu() -> None:
         print("="*36)
         print("\tGet Quiz Settings")
         print("="*36)
@@ -173,8 +187,10 @@ class ConsoleUi:
 
 
     # === OpenTriviaApi Class Display Section ===
+    @staticmethod
     def display_req_error(e) -> None:
         print(f"Error fetching quiz: {e}")
+    @staticmethod
     def display_no_data():
         print("No questions found for the selected settings.")
     # === End of OpenTriviaApi Class Display Section ===
@@ -197,10 +213,8 @@ class ConsoleUi:
     # === End of Leaderboard Class Section ===
 
 class Leaderboard():
-    FILE_PATH = (
-        "D:/Programming_filez/Pythons/Quiz_App/"
-        "leaderBoard/leaderboard.json"
-    )
+
+    FILE_PATH = Path(__file__).parent / "leaderboard.json"
     #store incoming player object attr in a dictionary
     def __init__(self) -> None:
         self.scores = {}
@@ -232,11 +246,11 @@ class Leaderboard():
 
 class OpenTriviaApi:
 
-    def url_formatter(self, settings) -> str:
+    def build_api_url(self, settings) -> str:
         url = f"https://opentdb.com/api.php?amount={settings.amount}"
 
         if settings.category:
-            url += f"&category=sports"
+            url += f"&category={settings.category}"
 
         if settings.difficulty:
             url += f"&difficulty={settings.difficulty}"
@@ -277,18 +291,19 @@ class OpenTriviaApi:
         return None
 
     def fetch_quiz(self, settings) -> List[Question]:
-        while True:
+        for attempt in range(3):
             try:
                 response = requests.get(
-                    self.url_formatter(settings),
+                    self.build_api_url(settings),
                     timeout=10
                 )
                 response.raise_for_status()
                 break
             except requests.RequestException as e:
                 ConsoleUi.display_req_error(e)
-                if input("Retry? (y/n): ").lower() == 'y':
-                    return []
+                time.sleep(2)
+        else:
+            return []
 
         data = response.json()
 
@@ -367,29 +382,29 @@ class QuizApp():
         self.ui = ui
 
 
-    def refresh_settings_screen(self) -> None:
+    def redraw_settings_screen(self) -> None:
         """Got Roasted by clanker becoz of these"""
         clear_screen()
-        self.ui.display_get_quiz_settings()
+        self.ui.display_quiz_settings_menu()
         
     def get_quiz_settings(self) -> QuizSettings:
         while True:
-            self.ui.display_get_quiz_settings()
+            self.ui.display_quiz_settings_menu()
             print("Press Enter for defaults.")
             print("Amount: 10 | Category: Any | Difficulty: Any | Type: Any\n")
 
             amount = get_str("Number of Questions")
 
-            self.refresh_settings_screen()
+            self.redraw_settings_screen()
             self.ui.display_categories_table()
             category = get_str("Select Category")
 
-            self.refresh_settings_screen()
+            self.redraw_settings_screen()
             difficulty = get_str(
                 "Select Difficulty (easy/medium/hard)"
             )
 
-            self.refresh_settings_screen()
+            self.redraw_settings_screen()
             q_type = get_str(
                 "Select Type (multiple/boolean)"
             )
@@ -409,24 +424,6 @@ class QuizApp():
             time.sleep(2)
             clear_screen()
 
-    def start_session(self, player, questions) -> None:
-
-        if not questions:
-            print("Unable to load questions.")
-            return
-        
-        session = QuizSession(player, questions)
-
-        for number, question in enumerate(questions, start=1):
-            self.ui.display_question(number,question,len(questions))
-            answer = ConsoleUi.get_answer()
-
-            if session.answer_question(question,answer):
-                 self.ui.display_correct_answer()
-            else:
-                 self.ui.display_wrong_answer(question.correct_answer)
-            time.sleep(2)
-            clear_screen()
         
     def show_results(self) -> None:
         print(f"Player: {self.player.name}")
@@ -435,7 +432,7 @@ class QuizApp():
 
 
     def create_player(self) -> None:
-        self.ui.display_player_creation()
+        self.ui.display_player_creation_screen()
         while True:
             name = input("Enter Name: ").strip()
 
@@ -449,15 +446,23 @@ class QuizApp():
     def start_quiz(self) -> None:
         clear_screen()
         self.create_player()
-        
+
         while True:
             clear_screen()
             settings = self.get_quiz_settings()
             clear_screen()
             questions = self.api.fetch_quiz(settings)
+
             if questions:
                 break
-        self.start_session(self.player, questions)
+
+        session = QuizSession(
+            self.player,
+            questions
+        )
+
+        session.play(self.ui)
+
         self.show_results()
         input("Enter to Main Menu")
         clear_screen()
@@ -466,7 +471,7 @@ class QuizApp():
 
         clear_screen_delayed(1)
         while True:
-            self.ui.display_Main_Menu()
+            self.ui.display_main_menu()
             choice = get_int("Enter Choice:")
 
             if choice == 1:
